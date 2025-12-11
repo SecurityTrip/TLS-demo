@@ -1,7 +1,6 @@
-# client.py — Реальный TLS 1.3 клиент с красивыми подробными логами
+# client.py — Реальный TLS 1.3 клиент (красивые логи + переносы)
 import socket
 import ssl
-import time
 from datetime import datetime
 
 GREEN = "\033[92m"
@@ -21,34 +20,43 @@ context.minimum_version = ssl.TLSVersion.TLSv1_3
 context.maximum_version = ssl.TLSVersion.TLSv1_3
 context.verify_mode = ssl.CERT_REQUIRED
 context.check_hostname = True
-context.load_verify_locations("server.crt")  # Доверяем нашему self-signed
+context.load_verify_locations("server.crt")
 
-log("SSL контекст создан", YELLOW)
-log("Протокол: ТОЛЬКО TLS 1.3", YELLOW)
-log("Доверенный сертификат: server.crt", YELLOW)
-log("Проверка имени хоста: включена", YELLOW)
+log("SSL контекст: готов", YELLOW)
+log("Протокол: TLS 1.3", YELLOW)
+log("Доверенный CA: server.crt", YELLOW)
+log("Проверка имени: localhost", YELLOW)
 
-log("Установка TCP-соединения с localhost:8443...", CYAN)
+log("Подключение к localhost:8443...", CYAN)
 sock = socket.create_connection(('localhost', 8443))
 
 log("Начинаем TLS handshake...", YELLOW)
 ssl_sock = context.wrap_socket(sock, server_hostname="localhost")
 
 log("HANDSHAKE УСПЕШЕН!", GREEN)
-log(f"Версия протокола: {ssl_sock.version()}", GREEN)
-log(f"Cipher suite: {ssl_sock.cipher()}", GREEN)
-log(f"Ключеобмен: {ssl_sock.shared_ciphers()}", GREEN)
-log(f"Сертификат сервера получен и проверен", CYAN)
+log(f"Версия: {ssl_sock.version()}", GREEN)
 
-message = "Привет, сервер! Это сообщение передаётся по настоящему TLS 1.3 с ECDHE и AES-GCM!"
+cipher_name, proto, bits = ssl_sock.cipher()
+log(f"Cipher suite:", GREEN)
+log(f"   {cipher_name} ({bits}-bit)", GREEN)
+
+log("Ключеобмен:", GREEN)
+log(f"   ECDHE (perfect forward secrecy)", GREEN)
+
+log("Сертификат сервера проверен", CYAN)
+log("Защищённый канал установлен", YELLOW)
+
+message = "Привет, сервер! Это сообщение передаётся по настоящему TLS 1.3!"
 ssl_sock.sendall(message.encode('utf-8'))
-log(f"ОТПРАВЛЕНО СЕРВЕРУ:\n    \"{message}\"", CYAN)
+log("ОТПРАВЛЕНО СЕРВЕРУ:", CYAN)
+log(f"   \"{message}\"", CYAN)
 
-log("Ожидание ответа от сервера...", YELLOW)
+log("Ожидание ответа...", YELLOW)
 response = ssl_sock.recv(4096)
 if response:
     text = response.decode('utf-8')
-    log(f"ПОЛУЧЕН ОТВЕТ ОТ СЕРВЕРА:\n    \"{text}\"", CYAN)
+    log("ПОЛУЧЕН ОТВЕТ:", CYAN)
+    log(f"   \"{text}\"", CYAN)
 
 ssl_sock.close()
 log("КЛИЕНТ ЗАВЕРШЁН", GREEN)

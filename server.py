@@ -1,7 +1,6 @@
-# server.py — Реальный TLS 1.3 сервер с красивыми подробными логами
+# server.py — Реальный TLS 1.3 сервер (красивые логи + переносы)
 import socket
 import ssl
-import time
 from datetime import datetime
 
 GREEN = "\033[92m"
@@ -21,11 +20,10 @@ context.minimum_version = ssl.TLSVersion.TLSv1_3
 context.maximum_version = ssl.TLSVersion.TLSv1_3
 context.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
-log("SSL контекст создан", YELLOW)
-log("Протокол: ТОЛЬКО TLS 1.3 (принудительно)", YELLOW)
-log("Сертификат: server.crt (self-signed)", YELLOW)
-log("Приватный ключ: server.key", YELLOW)
-log("Ожидание подключения на localhost:8443...", CYAN)
+log("SSL контекст: готов", YELLOW)
+log("Протокол: TLS 1.3 (принудительно)", YELLOW)
+log("Сертификат: server.crt", YELLOW)
+log("Ожидание подключения → localhost:8443", CYAN)
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -33,29 +31,35 @@ sock.bind(('localhost', 8443))
 sock.listen(1)
 
 conn, addr = sock.accept()
-log(f"Новое TCP-соединение от {addr}", GREEN)
-
+log(f"Подключение от {addr}", GREEN)
 log("Начинаем TLS handshake...", YELLOW)
+
 ssl_conn = context.wrap_socket(conn, server_side=True)
 
 log("HANDSHAKE УСПЕШЕН!", GREEN)
-log(f"Версия протокола: {ssl_conn.version()}", GREEN)
-log(f"Cipher suite: {ssl_conn.cipher()}", GREEN)
-log(f"Ключеобмен: {ssl_conn.shared_ciphers()}", GREEN)
-log(f"Серверный сертификат отправлен клиенту", CYAN)
+log(f"Версия: {ssl_conn.version()}", GREEN)
 
-log("Готов к приёму зашифрованных данных...", YELLOW)
+cipher_name, proto, bits = ssl_conn.cipher()
+log(f"Cipher suite:", GREEN)
+log(f"   {cipher_name} ({bits}-bit)", GREEN)
+
+log("Ключеобмен:", GREEN)
+log(f"   ECDHE (forward secrecy включён)", GREEN)  # В TLS 1.3 всегда ECDHE
+
+log("Сертификат отправлен клиенту", CYAN)
+log("Защищённый канал установлен", YELLOW)
 
 data = ssl_conn.recv(4096)
 if data:
     text = data.decode('utf-8', errors='replace')
-    log(f"ПОЛУЧЕНО ОТ КЛИЕНТА:\n    \"{text}\"", CYAN)
+    log("ПОЛУЧЕНО ОТ КЛИЕНТА:", CYAN)
+    log(f"   \"{text}\"", CYAN)
 
-response = "Привет, клиент! Это ответ от настоящего TLS 1.3 сервера. Всё зашифровано и защищено!"
+response = "Привет, клиент! Это настоящий TLS 1.3 с ECDHE и AES-GCM. Всё защищено!"
 ssl_conn.sendall(response.encode('utf-8'))
-log(f"ОТПРАВЛЕН ОТВЕТ КЛИЕНТУ:\n    \"{response}\"", CYAN)
+log("ОТПРАВЛЕН ОТВЕТ:", CYAN)
+log(f"   \"{response}\"", CYAN)
 
-log("Соединение закрывается...", YELLOW)
 ssl_conn.close()
 sock.close()
 log("СЕРВЕР ЗАВЕРШЁН", GREEN)
