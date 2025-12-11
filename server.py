@@ -1,4 +1,3 @@
-# server.py — Реальный TLS 1.3 сервер (красивые логи + переносы)
 import socket
 import ssl
 from datetime import datetime

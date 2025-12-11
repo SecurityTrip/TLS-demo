@@ -1,4 +1,3 @@
-# generate_cert.py — Генерация self-signed сертификата (гарантированно работает)
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization

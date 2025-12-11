@@ -1,4 +1,3 @@
-# client.py — Реальный TLS 1.3 клиент (красивые логи + переносы)
 import socket
 import ssl
 from datetime import datetime
