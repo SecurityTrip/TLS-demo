@@ -2,3 +2,6 @@
 .venv
 .gigaide
 TSL.iml
+
+*.key
+*.crt

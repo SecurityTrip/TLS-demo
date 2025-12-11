@@ -1,101 +1,61 @@
-# server.py — Упрощённый TLS 1.3 сервер (ECDHE + HKDF + AES-GCM)
+# server.py — Реальный TLS 1.3 сервер с красивыми подробными логами
 import socket
-import os
+import ssl
 import time
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from datetime import datetime
 
-# Цвета для консоли (опционально, работает в большинстве терминалов)
 GREEN = "\033[92m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
 RED = "\033[91m"
 RESET = "\033[0m"
 
-def log(message, success=None):
-    timestamp = time.strftime("%H:%M:%S")
-    if success is True:
-        print(f"[{timestamp}] {GREEN}{message}{RESET}")
-    elif success is False:
-        print(f"[{timestamp}] {RED}{message}{RESET}")
-    else:
-        print(f"[{timestamp}] {message}")
+def log(msg, color=""):
+    print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {color}{msg}{RESET}")
 
-log("Сервер: Запуск...")
+log("ЗАПУСК TLS 1.3 СЕРВЕРА", GREEN)
+log("─────────────────────────────────────────────────────", CYAN)
 
-server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_sock.bind(('localhost', 12345))
-server_sock.listen(1)
-log("Сервер: Слушает на localhost:12345")
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version = ssl.TLSVersion.TLSv1_3
+context.maximum_version = ssl.TLSVersion.TLSv1_3
+context.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
-conn, addr = server_sock.accept()
-log(f"Сервер: Подключён клиент {addr}")
+log("SSL контекст создан", YELLOW)
+log("Протокол: ТОЛЬКО TLS 1.3 (принудительно)", YELLOW)
+log("Сертификат: server.crt (self-signed)", YELLOW)
+log("Приватный ключ: server.key", YELLOW)
+log("Ожидание подключения на localhost:8443...", CYAN)
 
-# 1. Получаем клиентский публичный ключ (key_share)
-client_pub_bytes = conn.recv(1024)
-if len(client_pub_bytes) != 65:  # Ожидаемая длина для secp256r1 uncompressed
-    log("Сервер: Ошибка — неверная длина клиентского ключа!", success=False)
-    conn.close()
-    exit(1)
-log(f"Сервер: Получен клиентский публичный ключ (длина: {len(client_pub_bytes)} байт)")
-client_public = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), client_pub_bytes)
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.bind(('localhost', 8443))
+sock.listen(1)
 
-# 2. Генерируем серверные ephemeral ECDHE ключи
-log("Сервер: Генерация ephemeral ECDHE ключей...")
-server_private = ec.generate_private_key(ec.SECP256R1())
-server_public = server_private.public_key()
-server_pub_bytes = server_public.public_bytes(
-    encoding=serialization.Encoding.X962,
-    format=serialization.PublicFormat.UncompressedPoint
-)
-log(f"Сервер: Серверный публичный ключ готов (длина: {len(server_pub_bytes)} байт)")
+conn, addr = sock.accept()
+log(f"Новое TCP-соединение от {addr}", GREEN)
 
-# 3. Отправляем серверный публичный ключ клиенту
-conn.sendall(server_pub_bytes)
-log("Сервер: Отправлен серверный публичный ключ клиенту")
+log("Начинаем TLS handshake...", YELLOW)
+ssl_conn = context.wrap_socket(conn, server_side=True)
 
-# 4. Вычисляем shared secret
-log("Сервер: Вычисление shared secret...")
-shared_secret = server_private.exchange(ec.ECDH(), client_public)
-log(f"Сервер: Shared secret вычислен (длина: {len(shared_secret)} байт; ожидалось 32)", success=len(shared_secret) == 32)
+log("HANDSHAKE УСПЕШЕН!", GREEN)
+log(f"Версия протокола: {ssl_conn.version()}", GREEN)
+log(f"Cipher suite: {ssl_conn.cipher()}", GREEN)
+log(f"Ключеобмен: {ssl_conn.shared_ciphers()}", GREEN)
+log(f"Серверный сертификат отправлен клиенту", CYAN)
 
-# 5. Derivation handshake secret через HKDF
-hkdf = HKDF(
-    algorithm=hashes.SHA256(),
-    length=32,
-    salt=b'',
-    info=b'tls13 handshake key expansion',
-)
-hs_key = hkdf.derive(shared_secret)
-log("Сервер: Handshake secret derived (готов к шифрованию)")
+log("Готов к приёму зашифрованных данных...", YELLOW)
 
-# 6. Получаем зашифрованное сообщение от клиента
-nonce = conn.recv(12)
-if len(nonce) != 12:
-    log("Сервер: Ошибка — неверная длина nonce!", success=False)
-    conn.close()
-    exit(1)
-ciphertext = conn.recv(1024)
-log(f"Сервер: Получено зашифрованное сообщение (длина: {len(ciphertext)} байт)")
+data = ssl_conn.recv(4096)
+if data:
+    text = data.decode('utf-8', errors='replace')
+    log(f"ПОЛУЧЕНО ОТ КЛИЕНТА:\n    \"{text}\"", CYAN)
 
-# Расшифровка
-aesgcm = AESGCM(hs_key)
-try:
-    decrypted = aesgcm.decrypt(nonce, ciphertext, None)
-    log(f"Сервер: Расшифровано: {decrypted.decode('utf-8')}")
-    log("Сервер: Расшифровка успешна", success=True)
-except Exception as e:
-    log(f"Сервер: Ошибка расшифровки: {str(e)}", success=False)
-    conn.close()
-    exit(1)
+response = "Привет, клиент! Это ответ от настоящего TLS 1.3 сервера. Всё зашифровано и защищено!"
+ssl_conn.sendall(response.encode('utf-8'))
+log(f"ОТПРАВЛЕН ОТВЕТ КЛИЕНТУ:\n    \"{response}\"", CYAN)
 
-# 7. Отправляем зашифрованный ответ клиенту
-message_back = "Привет от сервера! TLS 1.3 работает успешно.".encode('utf-8')
-nonce_back = os.urandom(12)  # Случайный nonce
-ciphertext_back = aesgcm.encrypt(nonce_back, message_back, None)
-conn.sendall(nonce_back + ciphertext_back)
-log(f"Сервер: Отправлен зашифрованный ответ (длина: {len(ciphertext_back)} байт)")
-
-conn.close()
-server_sock.close()
-log("Сервер: Завершён")
+log("Соединение закрывается...", YELLOW)
+ssl_conn.close()
+sock.close()
+log("СЕРВЕР ЗАВЕРШЁН", GREEN)
